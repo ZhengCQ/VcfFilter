@@ -134,7 +134,7 @@ def run_filter(outvcf, each, grp_dict, low_dp, high_dp):
 	outfile = open(outvcf, 'a')
 	neweach = Filter(each, grp_dict, low_dp, high_dp)
 	outfile.write("{}\n".format(neweach.line))
-	#outfile.close()
+	outfile.close()
 	return neweach
 
 def main():
