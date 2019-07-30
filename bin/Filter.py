@@ -187,9 +187,12 @@ Output vcf file: {}/{}""".format(invcf, args.work_dir, outvcf)
 
 	pool = mp.Pool(args.n_core) #启动多线程池
 	for each in vcfinfo:
-		neweach = pool.apply_async(run_filter, args=(outvcf, each, grp_dict, low_dp, high_dp)).get() #函数写入到多线程池
-		total_dp_num = total_dp_num + neweach.dp_num
-		total_homogeneous_num = total_homogeneous_num + neweach.homogeneous_num
+		try:
+			neweach = pool.apply_async(run_filter, args=(outvcf, each, grp_dict, low_dp, high_dp)).get() #函数写入到多线程池
+			total_dp_num = total_dp_num + neweach.dp_num
+			total_homogeneous_num = total_homogeneous_num + neweach.homogeneous_num
+		except:
+			pass
 		#outfile.write("{}\n".format(neweach.line))
 
 	print('Waiting for all subprocesses done...')
