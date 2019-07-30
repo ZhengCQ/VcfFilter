@@ -1,10 +1,15 @@
 #!/usr/bin/env python
 #coding=utf-8"
+# Author: ChenQing Zheng
+# Date: 2019.07.30
 
 import sys
+import os
 import argparse
-import Read as Read
 import time
+import multiprocessing as mp
+
+import Read as Read
 
 ARGS = argparse.ArgumentParser(description="VCF过滤")
 ARGS.add_argument(
@@ -23,6 +28,9 @@ ARGS.add_argument(
 ARGS.add_argument(
 	'-dp',  dest='depth_cut', default='4,1000',
 	help='>=最低深度,<=最高深度,如:4,1000')
+ARGS.add_argument(
+    '--n_core', dest='n_core', type=int, default=1,
+    help='多进程数目, 默认为1')
 
 class HandleGroup(object):
 	"""
@@ -122,10 +130,14 @@ class Filter(object):
 		self.line = '\t'.join(self.__infos)
 
 
+def run_filter(each, grp_dict, low_dp, high_dp):
+	neweach = Filter(each, grp_dict, low_dp, high_dp)
+	return neweach
+
 def main():
 	args = ARGS.parse_args()
 	invcf = args.vcf
-	outvcf = invcf.replace('.vcf', '').replace('.gz', '') + args.output_pre + '.vcf'
+	outvcf = os.path.basename(invcf).replace('.vcf', '').replace('.gz', '') + args.output_pre + '.vcf'
 	outfile = open(outvcf, 'w')
 
 	print """Input vcf file: {}
@@ -168,12 +180,20 @@ Output vcf file: {}/{}""".format(invcf, args.work_dir, outvcf)
 	vcfinfo = Read.Readvcf(invcf).extract
 	total_dp_num = 0
 	total_homogeneous_num = 0
-	low_dp, high_dp = args.depth_cut.split(',') 
+	low_dp, high_dp = args.depth_cut.split(',')
+
+	pool = mp.Pool(int(args.n_core)) #启动多线程池
 	for each in vcfinfo:
-		neweach = Filter(each, grp_dict, low_dp, high_dp)
+		neweach = pool.apply_async(run_filter, args=(each, grp_dict, low_dp, high_dp)).get() #函数写入到多线程池
 		total_dp_num = total_dp_num + neweach.dp_num
 		total_homogeneous_num = total_homogeneous_num + neweach.homogeneous_num
 		outfile.write("{}\n".format(neweach.line))
+	print('Waiting for all subprocesses done...')
+	pool.close()
+	pool.join()
+	print('All subprocesses done.')
+	pool.terminate()
+
 	print "低/高深度标记次数: {}".format(total_dp_num)
 	print "Homogeneous标记次数: {}".format(total_homogeneous_num)
 
