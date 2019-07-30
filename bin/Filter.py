@@ -130,8 +130,11 @@ class Filter(object):
 		self.line = '\t'.join(self.__infos)
 
 
-def run_filter(each, grp_dict, low_dp, high_dp):
+def run_filter(outvcf, each, grp_dict, low_dp, high_dp):
+	outfile = open(outvcf, 'a')
 	neweach = Filter(each, grp_dict, low_dp, high_dp)
+	outfile.write("{}\n".format(neweach.line))
+	#outfile.close()
 	return neweach
 
 def main():
@@ -175,19 +178,20 @@ Output vcf file: {}/{}""".format(invcf, args.work_dir, outvcf)
 		for i in grp_dict[group_name]['index']:
 			newsamples.append(samples[i])
 	outfile.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}\n".format("\t".join(newsamples)))
-
+	outfile.close()
     #具体数值
 	vcfinfo = Read.Readvcf(invcf).extract
 	total_dp_num = 0
 	total_homogeneous_num = 0
 	low_dp, high_dp = args.depth_cut.split(',')
 
-	pool = mp.Pool(int(args.n_core)) #启动多线程池
+	pool = mp.Pool(args.n_core) #启动多线程池
 	for each in vcfinfo:
-		neweach = pool.apply_async(run_filter, args=(each, grp_dict, low_dp, high_dp)).get() #函数写入到多线程池
+		neweach = pool.apply_async(run_filter, args=(outvcf, each, grp_dict, low_dp, high_dp)).get() #函数写入到多线程池
 		total_dp_num = total_dp_num + neweach.dp_num
 		total_homogeneous_num = total_homogeneous_num + neweach.homogeneous_num
-		outfile.write("{}\n".format(neweach.line))
+		#outfile.write("{}\n".format(neweach.line))
+
 	print('Waiting for all subprocesses done...')
 	pool.close()
 	pool.join()
@@ -201,5 +205,4 @@ if __name__ == '__main__':
 	start = time.time()
 	main()
 	end = time.time()
-	print "时间总计{:0.2f}S".format(end - start)
-	
+	print "时间总计{:0.2f}S".format(end - start)	
