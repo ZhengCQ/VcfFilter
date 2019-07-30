@@ -130,7 +130,11 @@ class Vcfline(object):
 				# GT:AD:DP:GQ:PL  1/1:0,2155:2155:99:85781,6535,0
 				self.gt.append(more[0])
 				self.ad.append(more[1].split(',')[1])
-				self.dp.append(more[2])  # alternative allelic depth
+				
+				try:
+					self.dp.append(more[2])  # alternative allelic depth
+				except:
+					self.dp.append('0')
 			else:
 				self.gt.append(more[0])  # GT:GQ:PL
 				self.ad.append('.')
