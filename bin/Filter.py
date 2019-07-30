@@ -20,6 +20,9 @@ ARGS.add_argument(
 	'-samples',  dest='samples_name', 
 	help='具体样本名称，多个样本以逗号分隔，如sample1,sample2.多个组别用:分隔,\
 	如group1_sample1,group1_sample2:group2_sample1,group2_sample2')
+ARGS.add_argument(
+	'-dp',  dest='depth_cut', default='4,1000',
+	help='>=最低深度,<=最高深度,如:4,1000')
 
 class HandleGroup(object):
 	"""
@@ -55,56 +58,6 @@ class HandleGroup(object):
 			except:
 				print ('Warnings: %s haven\'t sample in vcf'%(self.grp_name))
 
-class GenotypeCount(object):
-	def __init__(self, gtinfo, grp_dict, grp_name=""):
-		self.gtinfo = gtinfo
-		self.grp_dict = grp_dict
-		self.grp_name_lst = []
-		if grp_name:
-			if grp_name in grp_dict:
-				self.grp_name_lst.append(grp_name)
-			else:
-				print ("Error {} not in {}".format(grp_name, grp_dict))
-		else:
-			self.grp_name_lst = grp_dict.keys()
-		self.gt_mut = {}
-		self.main()
-
-	def add_num(self, grp_name, sample_name, mut_type):
-		#初始化每个样本及每个突变基因型的值，
-		for i in ['miss', 'ref_hom', 'mut_hom', 'mut_mut', 'mut_het']:
-			self.gt_mut.setdefault(sample_name, {}).setdefault(i, 0)
-			try:
-				self.gt_mut[grp_name][i]
-			except:
-				self.gt_mut.setdefault(grp_name, {}).setdefault(i, 0)
-		#指定类型的值增加
-		self.gt_mut[grp_name][mut_type] += 1
-		self.gt_mut[sample_name][mut_type] += 1
-
-	def group_count(self, grp_name):
-		grp_gt_list = [self.gtinfo.split('|')[i] for i in self.grp_dict[grp_name]['index']]
-
-		for idx, val in enumerate(grp_gt_list):
-			sample_name = self.grp_dict[grp_name]['name'][idx]
-			gt = val.split('/')
-			if gt[0] == '.' and gt[1] == '.':
-				self.add_num(grp_name, sample_name, 'miss') #./.				
-			elif gt[0] == '0' and gt[1] == '0':#字符为0,非数字
-				self.add_num(grp_name, sample_name, 'ref_hom') #0/0
-			elif gt[0] != '0' and gt[1] != '0':
-				if gt[0] == gt[1]:
-					self.add_num(grp_name, sample_name, 'mut_hom') #1/1
-				else:
-					add_num(grp_name, sample_name, 'mut_mut') #类似突变为1/2
-			elif gt[0] != '0' or gt[1] != '0':
-				self.add_num(grp_name, sample_name, 'mut_het') #0/1，1/0, 2/0等
-	
-	def main(self):
-		for grp_name in self.grp_name_lst:
-			self.group_count(grp_name)
-
-
 class Filter(object):
 	def __init__(self, eachinfo, grp_dict, lowdepth = 4, highdepth=1000):
 		self.__each = eachinfo
@@ -123,7 +76,7 @@ class Filter(object):
 		"""
 		mark_num = 0
 		for idx, val in enumerate(self.__each.dp.split('|')):
-			if int(val) <= self.__lowdpth or int(val) >= self.__highdepth:
+			if int(val) < self.__lowdpth or int(val) > self.__highdepth:
 				tmp = gtdetail[idx].split(':')[1:]
 				tmp.insert(0, './.')
 				gtdetail[idx] = ':'.join(tmp)
@@ -135,7 +88,7 @@ class Filter(object):
 		该group中的基因型一致，且不为ref，添加标记
 		"""
 		filter_mark = ''
-		if len(set(group_gt)) == 1 and len(set(['0|0','0/0']) & set(group_gt)) == 0:
+		if len(set(group_gt)) == 1 and len(set(['0|0', '0/0', './.', '.|.']) & set(group_gt)) == 0:
 			filter_mark = 'GROUP {} homogeneous mutation'.format(group_name)
 		return filter_mark
 
@@ -172,7 +125,7 @@ class Filter(object):
 def main():
 	args = ARGS.parse_args()
 	invcf = args.vcf
-	outvcf = invcf.replace('.vcf', '').replace('.vcf.gz', '') + args.output_pre + '.vcf'
+	outvcf = invcf.replace('.vcf', '').replace('.gz', '') + args.output_pre + '.vcf'
 	outfile = open(outvcf, 'w')
 
 	print """Input vcf file: {}
@@ -215,8 +168,9 @@ Output vcf file: {}/{}""".format(invcf, args.work_dir, outvcf)
 	vcfinfo = Read.Readvcf(invcf).extract
 	total_dp_num = 0
 	total_homogeneous_num = 0
+	low_dp, high_dp = args.depth_cut.split(',') 
 	for each in vcfinfo:
-		neweach = Filter(each, grp_dict)
+		neweach = Filter(each, grp_dict, low_dp, high_dp)
 		total_dp_num = total_dp_num + neweach.dp_num
 		total_homogeneous_num = total_homogeneous_num + neweach.homogeneous_num
 		outfile.write("{}\n".format(neweach.line))
