@@ -17,7 +17,7 @@ ARGS.add_argument(
 ARGS.add_argument(
 	'-w', '--work_dir', dest='work_dir', default='.', help='工作目录，默认：当前目录。')
 ARGS.add_argument(
-	'-o', '--output', dest='output_pre', default='recode_filter', help='输入文件名前缀, 默认: recode_filter')
+	'-o', '--output', dest='output_pre', default='_recode_filter', help='输入文件名前缀, 默认: recode_filter')
 ARGS.add_argument(
 	'-groups',  dest='group_name', 
 	help='Groups的名称，多个样本以:分隔，如group1:group2')
@@ -28,9 +28,9 @@ ARGS.add_argument(
 ARGS.add_argument(
 	'-dp',  dest='depth_cut', default='4,1000',
 	help='>=最低深度,<=最高深度,如:4,1000')
-ARGS.add_argument(
-    '--n_core', dest='n_core', type=int, default=1,
-    help='多进程数目, 默认为1')
+#ARGS.add_argument(
+#    '--n_core', dest='n_core', type=int, default=1,
+#    help='多进程数目, 默认为1')
 
 class HandleGroup(object):
 	"""
@@ -130,93 +130,84 @@ class Filter(object):
 		self.line = '\t'.join(self.__infos)
 
 
-def run_filter(each, grp_dict, low_dp, high_dp):
-	#outfile = open(outvcf, 'a')
-	neweach = Filter(each, grp_dict, low_dp, high_dp)
-	#outfile.write("{}\n".format(neweach.line))
-	#outfile.close()
-	return neweach
+class Run(object):
+	def __init__(self, args):
+		self.__invcf = args.vcf
+		self.__outvcf = os.path.basename(self.__invcf).replace('.vcf', '').replace('.gz', '') + args.output_pre + '.vcf'
+		self.__group_name = args.group_name
+		self.__samples_name = args.samples_name
+		self.__depth = args.depth_cut
+		self.__total_dp_num = 0
+		self.__total_homogeneous_num = 0
+		self.__grp_dict = {}
+		self.main()
 
-def main():
-	args = ARGS.parse_args()
-	invcf = args.vcf
-	outvcf = os.path.basename(invcf).replace('.vcf', '').replace('.gz', '') + args.output_pre + '.vcf'
-	outfile = open(outvcf, 'w')
+	def run_filter(self, each, grp_dict, low_dp, high_dp):
+		neweach = Filter(each, grp_dict, low_dp, high_dp)
+		self.__total_dp_num = self.__total_dp_num + neweach.dp_num
+		self.__total_homogeneous_num  = self.__total_homogeneous_num  + neweach.homogeneous_num
+		self.wirte_file(neweach)
+		#return neweach
 
-	print """Input vcf file: {}
-Output vcf file: {}/{}""".format(invcf, args.work_dir, outvcf)
+	def wirte_file(self, each):
+		with open(self.__outvcf, 'a+') as fi:
+			fi.write('%s\n'%(each.line))
 
-	if not invcf:
-		print('Use --help for command line help')
-		return
-	try:
-		os.makedirs(args.work_dir)
-	except:
-		pass
-		#print ('%s exists' %(args.work_dir)) 
-    
-    #处理gourp
-	grp_dict = {}
-	if args.group_name and args.samples_name:	
-		groups = args.group_name
-		samples = args.samples_name
-		for idx, val in enumerate(groups.split(':')):
-			HandleGroup(invcf, grp_dict, val, samples.split(':')[idx].split(','))
-	else:
-		"""
-		{'All': {'index': [0, 1, 2, 3], 'name': ['AB00001802', 'GCT_4libs', 'GCT_AB0000353', 'GCT_AB0001103']},
-		"""
-		HandleGroup(invcf, grp_dict)
+	def get_group(self):
+		if self.__group_name and self.__samples_name:
+			for idx, val in enumerate(self.__group_name.split(':')):
+				HandleGroup(self.__invcf, self.__grp_dict, val, self.__samples_name.split(':')[idx].split(','))
+		else:
+			"""
+			{'All': {'index': [0, 1, 2, 3], 'name': ['AB00001802', 'GCT_4libs', 'GCT_AB0000353', 'GCT_AB0001103']},
+			"""
+			HandleGroup(self.__invcf, self.__grp_dict)
 
-	##header
-	outfile.write("{}".format(Read.Readvcf(invcf).header))
+	def write_head(self):
+		with open(self.__outvcf, 'w') as fi:
+			##header
+			fi.write("{}".format(Read.Readvcf(self.__invcf).header))
+			#samples行
+			samples = Read.Readvcf(self.__invcf).samples.split('|')
+			newsamples = []
+			for group_name in self.__grp_dict:
+				for i in self.__grp_dict[group_name]['index']:
+					newsamples.append(samples[i])
+			fi.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}\n".format("\t".join(newsamples)))
 
-	#samples行
-	samples = Read.Readvcf(invcf).samples.split('|')
-	newsamples = []
-	for group_name in grp_dict:
-		for i in grp_dict[group_name]['index']:
-			newsamples.append(samples[i])
-	outfile.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{}\n".format("\t".join(newsamples)))
-	#outfile.close()
-    #具体数值
-	vcfinfo = Read.Readvcf(invcf).extract
-	total_dp_num = 0
-	total_homogeneous_num = 0
-	low_dp, high_dp = args.depth_cut.split(',')
-
-	pool = mp.Pool(args.n_core) #启动多线程池
-	results = []
-	num = 0
-	for each in vcfinfo:
-		num += num + 1
+	def main(self):
+		if not self.__invcf:
+			print('Use --help for command line help')
+			return
 		try:
-			neweach = pool.apply_async(run_filter, args=(each, grp_dict, low_dp, high_dp)).get() #函数写入到多线程池
-			results.append(neweach.line)
-			total_dp_num = total_dp_num + neweach.dp_num
-			total_homogeneous_num = total_homogeneous_num + neweach.homogeneous_num
+			os.makedirs(args.work_dir)
 		except:
 			pass
-		if num >=10 or not each:
-			for each in results:
-				outfile.write("{}\n".format(each))
-			results =[]
-			num = 0
-	for each in results:
-		outfile.write("{}\n".format(each))	
+			#print ('%s exists' %(args.work_dir))
 
+		self.get_group()
+		self.write_head()
+		low_dp, high_dp = self.__depth.split(',')
+		vcfinfo = Read.Readvcf(self.__invcf).extract
+		#pool = mp.Pool(1) #启动多线程池
+		for each in vcfinfo:
+			self.run_filter(each, self.__grp_dict, low_dp, high_dp)
+			#pool.apply_async(self.run_filter, args=(each, self.__grp_dict, low_dp, high_dp))#函数写入到多线程池
 
-	print('Waiting for all subprocesses done...')
-	pool.close()
-	pool.join()
-	print('All subprocesses done.')
-	pool.terminate()
+		"""
+		print('Waiting for all subprocesses done...')
+		pool.close()
+		pool.join()
+		print('All subprocesses done.')
+		pool.terminate()
+		"""
 
-	print "低/高深度标记次数: {}".format(total_dp_num)
-	print "Homogeneous标记次数: {}".format(total_homogeneous_num)
+		print ("低/高深度标记次数: {}".format(self.__total_dp_num))
+		print ("Homogeneous标记次数: {}".format(self.__total_homogeneous_num))
 
 if __name__ == '__main__':
 	start = time.time()
-	main()
+	args = ARGS.parse_args()
+	Run(args)
 	end = time.time()
 	print "时间总计{:0.2f}S".format(end - start)	
